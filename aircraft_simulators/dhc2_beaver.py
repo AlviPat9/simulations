@@ -7,13 +7,15 @@ Flight Simulator environment for DHC2 - beaver aircraft.
 Author: Alvaro Marcos Canedo
 """
 
-from Ares.simulators.aircraft import Aircraft
-from Ares.integrators.forward_euler import ForwardEuler
-from Ares.utilities.keys import AircraftKeys as Ak
+from simulations.simulators.aircraft import Aircraft
+from simulations.utilities.keys import AircraftKeys as Ak
+from simulations.utilities.tools import keep_angle_range
 
 import numpy as np
-from scipy.signal import dlti
 import json
+
+from scipy.signal import dlti
+from scipy.integrate import solve_ivp
 
 
 class DHC2Beaver(Aircraft):
@@ -51,16 +53,20 @@ class DHC2Beaver(Aircraft):
         # Fuel consumption
         self.fc = 76 / 3600  # [kg/s]
 
+        # Initial state of the aircraft
+        self.initial_state = initial_state
+        self.state = initial_state
+
+        # Initialize of integration parameters
+        self.time = 0.0
+        self.step_size = step_size
+
         # Path to the aerodynamic coefficients
-        path = r'C:\ProgramData\Calculos\python\Ares\aircraft_simulators\dhc2_beaver_aero.json'
+        path = r'C:\ProgramData\Calculos\python\simulations\aircraft_simulators\dhc2_beaver_aero.json'
 
         # Load aerodynamic data of the aircraft
         with open(path, 'r') as f:
             self.aero = json.load(f)
-
-        # Call integrator
-        self.integration = ForwardEuler(system=self.equations(), step_size=step_size, final_time=final_time,
-                                        initial_state=initial_state)
 
         # Definition of the mass model
         self.mass = self.mass_model()
@@ -147,11 +153,9 @@ class DHC2Beaver(Aircraft):
         Cx = self.aero['CX_0'] + self.aero['CX_apt'] * power_plant + self.aero['CX_apt2_a'] * angles[
             Ak.alpha] * power_plant ** 2 + \
              self.aero['CX_a'] * angles[Ak.alpha] + self.aero['CX_a2'] * angles[Ak.alpha] ** 2 + \
-             self.aero['CX_a3'] * angles[Ak.alpha] ** 3 + self.aero['CX_q'] * angular_speed[
-                 Ak.q] * self.c / airspeed + \
+             self.aero['CX_a3'] * angles[Ak.alpha] ** 3 + self.aero['CX_q'] * angular_speed[Ak.q] * self.c / airspeed + \
              self.aero['CX_dr'] * delta[Ak.dr] + self.aero['CX_df'] * delta[Ak.df] + self.aero['CX_df_a'] * delta[
-                 Ak.df] * \
-             angles[Ak.alpha]
+                 Ak.df] * angles[Ak.alpha]
 
         Cy = self.aero['CY_0'] + self.aero['CY_b'] * angles[Ak.beta] + self.aero['CY_p'] * angular_speed[
             Ak.p] * self.b / (2 * airspeed) + \
@@ -160,8 +164,7 @@ class DHC2Beaver(Aircraft):
              self.aero['CY_bp'] * accelerations['bp'] * self.b / (airspeed * 2)
 
         Cz = self.aero['CZ_0'] + self.aero['CZ_apt'] * power_plant + self.aero['CZ_a'] * angles[Ak.alpha] + \
-             self.aero['CZ_a3'] * angles[Ak.alpha] ** 3 + self.aero['CZ_q'] + angular_speed[
-                 Ak.q] * self.c / airspeed + \
+             self.aero['CZ_a3'] * angles[Ak.alpha] ** 3 + self.aero['CZ_q'] * angular_speed[Ak.q] * self.c / airspeed + \
              self.aero['CZ_de'] * delta[Ak.de] + self.aero['CZ_de_b2'] * delta[Ak.de] * angles[Ak.beta] ** 2 + \
              self.aero['CZ_df'] * delta[Ak.df] + self.aero['CZ_df_a'] * delta[Ak.df] * angles[Ak.alpha]
 
@@ -169,13 +172,10 @@ class DHC2Beaver(Aircraft):
              self.aero['Cl_p'] * angular_speed[Ak.p] * self.b / (2 * airspeed) + \
              self.aero['Cl_r'] * self.b / (2 * airspeed) + self.aero['Cl_da'] * delta[Ak.da] + \
              self.aero['Cl_dr'] * delta[Ak.dr] + self.aero['Cl_a2_apt'] * power_plant * angles[Ak.alpha] ** 2 + \
-             self.aero[
-                 'Cl_da_a'] * angles[Ak.alpha] * \
-             delta[Ak.da]
+             self.aero['Cl_da_a'] * angles[Ak.alpha] * delta[Ak.da]
 
         Cm = self.aero['Cm_0'] + self.aero['Cm_apt'] * power_plant + self.aero['Cm_a'] * angles[Ak.alpha] + \
-             self.aero['Cm_a2'] * angles[Ak.alpha] ** 2 + self.aero['Cm_q'] * angular_speed[
-                 Ak.q] * self.c / airspeed + \
+             self.aero['Cm_a2'] * angles[Ak.alpha] ** 2 + self.aero['Cm_q'] * angular_speed[Ak.q] * self.c / airspeed + \
              self.aero['Cm_de'] * delta[Ak.de] + self.aero['Cm_b2'] * angles[Ak.beta] ** 2 + \
              self.aero['Cm_r'] * angular_speed[Ak.r] * self.b / (2 * airspeed) + self.aero['Cm_df'] * delta[Ak.df]
 
@@ -212,13 +212,14 @@ class DHC2Beaver(Aircraft):
         b = 191.18
         Pz = 20  # Manifold pressure -> At the moment defines as constant.
 
-        if fuel > 0.0:
+        if (fuel > 0.0) and (n > 0):
             # Calculation of the engine power -> Last number is the conversion between horsepower and wats
             P = (-326.5 + (0.00412 * (Pz + 7.4) * (n + 2010) + (408.0 - 0.0965 * n) *
                            (1.0 - self.atmosphere.rho / self.atmosphere.rho_sl))) * 0.74570
 
             # Normalization to be included in aerodynamic model
             apt = a + b * P / (0.5 * self.atmosphere.rho * airspeed ** 3)
+
         else:
             apt = 0.0
 
@@ -252,7 +253,7 @@ class DHC2Beaver(Aircraft):
         @rtype: np.ndarray
         """
 
-        return mass * self.g * np.array([np.sin(euler_angles[Ak.theta]),
+        return mass * self.g * np.array([-np.sin(euler_angles[Ak.theta]),
                                          np.sin(euler_angles[Ak.phi]) * np.cos(euler_angles[Ak.theta]),
                                          np.cos(euler_angles[Ak.phi]) * np.cos(euler_angles[Ak.theta])])
 
@@ -296,7 +297,8 @@ class DHC2Beaver(Aircraft):
         gravity = self.gravity(euler_angles, mass)
 
         # Landing gear forces -> At the moment not included
-        lg_force = self.landing_gear(y, aero[2] + mass * self.g, brake_pedal)
+        # lg_force = self.landing_gear(y, -aero[0][2] + mass * self.g, brake_pedal)
+        lg_force = 0
 
         aero[0][0] -= lg_force
 
@@ -323,6 +325,7 @@ class DHC2Beaver(Aircraft):
             # Calculate Friction Force
             friction_coefficient = 0.3
             F_friction = friction_coefficient * normal_force
+            print(f"Normal force: {normal_force}")
 
             # Calculate Braking forces
             braking_coefficient = 0.2
@@ -356,10 +359,9 @@ class DHC2Beaver(Aircraft):
         aircraft_state = self.integration.get_state()
 
         while self.integration.time < 1000:
-            self.atmosphere.calculate(aircraft_state[-1])
+            self.atmosphere.calculate(aircraft_state[11])
             aircraft_state = np.concatenate(aircraft_state,
-                                            self.integration.integrate_step(self.integration.get_state(), delta,
-                                                                            acceleration))
+                                            self.integration.integrate_step(delta, acceleration))
 
         pass
 
@@ -377,14 +379,28 @@ class DHC2Beaver(Aircraft):
         # Set acceleration to 0 -> not calculated
         acceleration = 0.0
 
-        # Get aircraft state
-        aircraft_state = self.integration.get_state()
+        # Set Atmosphere conditions
+        self.atmosphere.calculate(self.state[11])
 
-        self.atmosphere.calculate(aircraft_state[11])
+        # self.integration.integrate_step(self.integration.get_state(), delta, acceleration) # For euler method
+        sol = solve_ivp(lambda t, y: self.equations(t, y, delta, acceleration), (self.time, self.time + self.step_size),
+                        self.state)  # For RK4
+        self.time += self.step_size
+        state = sol.y[:, -1]
+        self.state = state
 
-        self.integration.integrate_step(self.integration.get_state(), delta, acceleration)
+        # # Update angles to keep them in range
+        # phi = keep_angle_range(state[3], -np.pi, np.pi)
+        # theta = keep_angle_range(state[4], -np.pi, np.pi)
+        # psi = keep_angle_range(state[5], -np.pi, np.pi)
+        # self.state = np.array([state[0], state[1], state[2],
+        #                        phi, theta, psi,
+        #                        state[6], state[7], state[8],
+        #                        state[9], state[10], state[11],
+        #                        state[12], state[13], state[14],
+        #                        state[15], state[16]])
 
-        intermediate_dict = self.state_to_dict(self.integration.get_state())
+        intermediate_dict = self.state_to_dict(self.state)
 
         output_vars = [Ak.speed, Ak.position, Ak.euler_angles, Ak.fuel]
 
@@ -399,61 +415,69 @@ class DHC2Beaver(Aircraft):
         @rtype: np.ndarray
         """
 
-        return self.integration.reset()
+        self.state = self.initial_state
 
-    def equations(self, *args) -> np.ndarray:
+        self.time = 0.0
+
+        return self.state
+
+    def equations(self, t: float, state: np.ndarray, delta: dict, acceleration: float) -> np.ndarray:
         """
 
         Equations of the aircraft model developed for the DHC2 - Beaver.
 
-        @param args:
+        @param state: Actual state of the aircraft.
+        @type state: np.ndarray
+        @param t: Current time of the simulation.
+        @type t: float
+        @param delta: Control surfaces deflection value.
+        @type delta: dict
+        @param acceleration: Derivative of sideslip angle.
+        @type acceleration: float
 
         @return: Actual state of the aircraft based on its derivatives.
         @rtype: np.ndarray
         """
 
         # Angular speeds
-        p = args[1][0]
-        q = args[1][1]
-        r = args[1][2]
+        p = state[0]
+        q = state[1]
+        r = state[2]
 
         # Euler angles
-        phi = args[1][3]
-        theta = args[1][4]
-        psi = args[1][5]
-
-        # Position
-        x = args[1][6]
-        y = args[1][7]
-        z = args[1][8]
+        phi = state[3]
+        theta = state[4]
+        psi = state[5]
 
         # Speed
-        u = args[1][9]
-        v = args[1][10]
-        w = args[1][11]
+        u = state[6]
+        v = state[7]
+        w = state[8]
+
+        # Position
+        x = state[9]
+        y = state[10]
+        z = state[11]
 
         # Landing gear data
-        y_lg = args[1][12]
-        v_lg = args[1][13]
+        y_lg = state[12]
+        v_lg = state[13]
 
         # Fuel available
-        fuel = args[1][14]
+        fuel = state[14]
 
         # Latitude and longitude
-        lat = args[1][15]
-        lon = args[1][16]
-
-        # Delta
-        delta = args[2]
+        lat = state[15]
+        lon = state[16]
 
         # Accelerations
-        accelerations = args[3]
+        accelerations = dict(bp=acceleration)
 
         # Engine
         n = delta[Ak.t_lever]
 
         # Calculate angle of attack and angle of sideslip
-        angles = {Ak.alpha: np.Aktan2(w, u), Ak.beta: np.Aktan2(v, (u ** 2 + w ** 2) ** 0.5)}
+        angles = {Ak.alpha: np.arctan2(w, u), Ak.beta: np.arctan2(v, (u ** 2 + w ** 2) ** 0.5)}
 
         # Forces wrapper
         forces, torques = self.forces(n=n, angles=angles, angular_speed={Ak.p: p, Ak.q: q, Ak.r: r},
@@ -464,11 +488,9 @@ class DHC2Beaver(Aircraft):
 
         # Derivatives of angular speed in body-frame
         pp = (self.mass[Ak.Iz] * torques[0] + self.mass[Ak.Ixz] * torques[2] - q * r * self.mass[
-            Ak.Ixz] ** 2 - q * r *
-              self.mass[
-                  Ak.Iz] ** 2
-              + self.mass[Ak.Ixz] * self.mass[Ak.Iy] * p * q + self.mass[Ak.Ixz] * self.mass[Ak.Iz] * p * q +
-              self.mass[Ak.Iz] * self.mass[Ak.Iy] * q * r) / (
+            Ak.Ixz] ** 2 - q * r * self.mass[Ak.Iz] ** 2
+              - self.mass[Ak.Ixz] * self.mass[Ak.Iy] * p * q + self.mass[Ak.Ixz] * self.mass[Ak.Iz] * p * q +
+              self.mass[Ak.Iz] * self.mass[Ak.Iy] * q * r + self.mass[Ak.Ixz] * self.mass[Ak.Ix] * p * q) / (
                      self.mass[Ak.Ix] * self.mass[Ak.Iz] - self.mass[Ak.Ixz] ** 2)
         qp = (torques[1] - self.mass[Ak.Ixz] * p ** 2 + self.mass[Ak.Ixz] * r ** 2 - self.mass[Ak.Ix] * p * r +
               self.mass[Ak.Iz] * p * r) / self.mass[Ak.Iy]
@@ -476,14 +498,13 @@ class DHC2Beaver(Aircraft):
         rp = (self.mass[Ak.Ixz] * torques[0] + self.mass[Ak.Ix] * torques[2] + p * q * self.mass[Ak.Ix] ** 2 -
               self.mass[Ak.Ix] * self.mass[Ak.Iy] * p * q - p * q * self.mass[Ak.Ixz] ** 2 -
               self.mass[Ak.Ix] * self.mass[Ak.Ixz] * q * r + self.mass[Ak.Ixz] * self.mass[Ak.Iy] * q * r -
-              self.mass[
-                  Ak.Ixz] * self.mass[Ak.Iz] * q * r) / (
+              self.mass[Ak.Ixz] * self.mass[Ak.Iz] * q * r) / (
                      self.mass[Ak.Ix] * self.mass[Ak.Iz] * self.mass[Ak.Ixz] ** 2)
 
         # Derivatives of euler angles
-        phip = q * np.sin(phi) / np.cos(theta) + r * np.cos(phi) / np.cos(theta)
+        phip = p + r * np.cos(phi) * np.tan(theta) + q * np.sin(phi) * np.tan(theta)
         thetap = q * np.cos(phi) - r * np.sin(phi)
-        psip = p + q * np.sin(phi) * np.tan(theta) + r * np.cos(phi) * np.tan(theta)
+        psip = r * np.cos(phi) / np.cos(theta) + q * np.tan(theta)
 
         # Airspeed derivative
         up = forces[0] / self.mass[Ak.mass] - q * w + r * v
@@ -494,7 +515,7 @@ class DHC2Beaver(Aircraft):
         rotation = self.rotation_matrix(np.array([phi, theta, psi]))
 
         # Position Derivatives
-        xp, yp, zp = rotation.dot(np.array([x, y, z]))
+        xp, yp, zp = rotation.dot(np.array([u, v, w]))
 
         # Landing gear dynamics
         yp_lg = v_lg
@@ -520,8 +541,8 @@ class DHC2Beaver(Aircraft):
         @rtype: dict
         """
 
-        return {Ak.speed_ang: state[0:3], Ak.euler_angles: state[3:6], Ak.speed: state[7:10],
-                Ak.earth_position: state[10:13], Ak.fuel: state[14], Ak.position: state[15:]}
+        return {Ak.speed_ang: state[0:3], Ak.euler_angles: state[3:6], Ak.speed: state[6:9],
+                Ak.earth_position: state[9:12], Ak.fuel: state[14], Ak.position: state[15:]}
 
     @staticmethod
     def rotation_matrix(angles):
