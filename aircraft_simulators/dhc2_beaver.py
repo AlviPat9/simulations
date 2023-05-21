@@ -9,7 +9,9 @@ Author: Alvaro Marcos Canedo
 
 from simulations.simulators.aircraft import Aircraft
 from simulations.utilities.keys import AircraftKeys as Ak
-from simulations.utilities.tools import keep_angle_range
+# from simulations.utilities.tools import keep_angle_range
+
+from Ares.integrators.rk4 import RK4
 
 import numpy as np
 import json
@@ -53,16 +55,13 @@ class DHC2Beaver(Aircraft):
         # Fuel consumption
         self.fc = 76 / 3600  # [kg/s]
 
-        # Initial state of the aircraft
-        self.initial_state = initial_state
-        self.state = initial_state
-
-        # Initialize of integration parameters
-        self.time = 0.0
-        self.step_size = step_size
+        # Initialize integration method
+        self.integration = RK4(system=self.equations, step_size=step_size, initial_state=initial_state,
+                               final_time=final_time)
 
         # Path to the aerodynamic coefficients
-        path = r'C:\ProgramData\Calculos\python\simulations\aircraft_simulators\dhc2_beaver_aero.json'
+        # path = r'C:\ProgramData\Calculos\python\simulations\aircraft_simulators\dhc2_beaver_aero.json'
+        path = r'C:\PythonProjects\simulations\aircraft_simulators\dhc2_beaver_aero.json'
 
         # Load aerodynamic data of the aircraft
         with open(path, 'r') as f:
@@ -380,14 +379,10 @@ class DHC2Beaver(Aircraft):
         acceleration = 0.0
 
         # Set Atmosphere conditions
-        self.atmosphere.calculate(self.state[11])
+        self.atmosphere.calculate(self.integration.get_state()[11])
 
-        # self.integration.integrate_step(self.integration.get_state(), delta, acceleration) # For euler method
-        sol = solve_ivp(lambda t, y: self.equations(t, y, delta, acceleration), (self.time, self.time + self.step_size),
-                        self.state)  # For RK4
-        self.time += self.step_size
-        state = sol.y[:, -1]
-        self.state = state
+        # Call integration step method
+        self.integration.integrate_step(delta, acceleration)
 
         # # Update angles to keep them in range
         # phi = keep_angle_range(state[3], -np.pi, np.pi)
@@ -400,7 +395,7 @@ class DHC2Beaver(Aircraft):
         #                        state[12], state[13], state[14],
         #                        state[15], state[16]])
 
-        intermediate_dict = self.state_to_dict(self.state)
+        intermediate_dict = self.state_to_dict(self.integration.get_state())
 
         output_vars = [Ak.speed, Ak.position, Ak.euler_angles, Ak.fuel]
 
@@ -415,11 +410,9 @@ class DHC2Beaver(Aircraft):
         @rtype: np.ndarray
         """
 
-        self.state = self.initial_state
+        self.integration.reset()
 
-        self.time = 0.0
-
-        return self.state
+        return self.integration.get_state()
 
     def equations(self, t: float, state: np.ndarray, delta: dict, acceleration: float) -> np.ndarray:
         """
