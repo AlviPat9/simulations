@@ -17,7 +17,6 @@ import numpy as np
 import json
 
 from scipy.signal import dlti
-from scipy.integrate import solve_ivp
 
 
 class DHC2Beaver(Aircraft):
