@@ -11,7 +11,7 @@ Author: Alvaro Marcos Canedo
 
 from abc import ABC, abstractmethod
 
-from Ares.aircraft_simulators.atmospheric_model import AtmosphericModel
+from simulations.aircraft_simulators.atmospheric_model import AtmosphericModel
 
 from numpy import sin, cos, sqrt
 
