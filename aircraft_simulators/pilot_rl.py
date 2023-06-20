@@ -10,7 +10,7 @@ simulation. Here it is defined the environment of the simulator. After, the rein
 Author: Alvaro Marcos Canedo
 """
 from simulations.utilities.keys import AircraftKeys as Ak
-from simulations.utilities.tools import haversine
+from simulations.utilities.tools import haversine, convert_dict_to_ndarray
 from simulations.io.base_agent_rl import BaseAgentRL
 
 from tensorflow.python.keras.models import Sequential
@@ -249,7 +249,7 @@ class PilotAgentTF(BaseAgentRL):
         @rtype: dict
         """
         # Convert state (dictionary) to np.ndarray type
-        state_array = np.concatenate([state[key] for key in state.keys()], axis=-1)
+        state_array = convert_dict_to_ndarray(state)
 
         # Predict action values with neural network model
         action_values = self.model.predict(np.expand_dims(state_array, axix=0))
