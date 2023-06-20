@@ -9,9 +9,9 @@ simulation. Here it is defined the environment of the simulator. After, the rein
 
 Author: Alvaro Marcos Canedo
 """
-from Ares.utilities.keys import AircraftKeys as Ak
-from Ares.utilities.tools import haversine
-from Ares.io.base_agent_rl import BaseAgentRL
+from simulations.utilities.keys import AircraftKeys as Ak
+from simulations.utilities.tools import haversine
+from simulations.io.base_agent_rl import BaseAgentRL
 
 from tensorflow.python.keras.models import Sequential
 from tensorflow.python.keras.layers import Dense
@@ -51,9 +51,9 @@ class PilotRL(gym.Env):
         # At first, only latitude and longitude
         self.observation_space = gym.spaces.Dict(
             {
-                Ak.position: gym.spaces.Box(low=np.ndarray([-np.pi/2, -np.pi]), high=np.ndarray([np.pi/2, np.pi]),
+                Ak.position: gym.spaces.Box(low=np.array([-np.pi/2, -np.pi]), high=np.array([np.pi/2, np.pi]),
                                             shape=(2,), dtype=np.float32),
-                Ak.speed: gym.spaces.Box(low=np.ndarray([-120.0, -120.0, -20.0]), high=np.array([120.0, 120.0, 20.0]),
+                Ak.speed: gym.spaces.Box(low=np.array([-120.0, -120.0, -20.0]), high=np.array([120.0, 120.0, 20.0]),
                                          shape=(3,), dtype=np.float32),
                 Ak.euler_angles: gym.spaces.Box(low=np.array([-np.pi, -np.pi/2, 0.0]),
                                                 high=np.array([np.pi, np.pi/2, 2*np.pi]),
@@ -211,7 +211,7 @@ class PilotAgentTF(BaseAgentRL):
         self.model = self._build_model(layers, input_shape, neurons, activation_function)
 
         # Set optimizer
-        self.optimizer = Adam(learning_rate=0.01)
+        self.optimizer = Adam(lr=0.01)
 
     def _build_model(self, layers: int, input_shape: int, neurons: np.ndarray, activation_function: list) -> Sequential:
         """
@@ -230,7 +230,7 @@ class PilotAgentTF(BaseAgentRL):
         """
         model = Sequential(Dense(neurons[0], activation=activation_function[0], input_shape=(input_shape,)))
 
-        for i in range(1, layers + 1):
+        for i in range(1, layers):
             model.add(Dense(neurons[i], activation=activation_function[i]))
 
         model.add(Dense(self.action_size, activation=activation_function[-1]))
@@ -277,6 +277,7 @@ class PilotAgentTF(BaseAgentRL):
         for i in range(episodes):
             # Initialize for each episode
             state = self.env.reset()
+            state = self.env.simulator.state_to_dict(state)
             episode_reward = 0
 
             for step in range(max_step_per_episode):
