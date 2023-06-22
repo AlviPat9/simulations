@@ -48,28 +48,21 @@ class PilotRL(gym.Env):
         @type final_time: float, optional
 
         """
+        # Observation space definition
         # At first, only latitude and longitude
-        self.observation_space = gym.spaces.Dict(
-            {
-                Ak.position: gym.spaces.Box(low=np.array([-np.pi/2, -np.pi]), high=np.array([np.pi/2, np.pi]),
-                                            shape=(2,), dtype=np.float32),
-                Ak.speed: gym.spaces.Box(low=np.array([-120.0, -120.0, -20.0]), high=np.array([120.0, 120.0, 20.0]),
-                                         shape=(3,), dtype=np.float32),
-                Ak.euler_angles: gym.spaces.Box(low=np.array([-np.pi, -np.pi/2, 0.0]),
-                                                high=np.array([np.pi, np.pi/2, 2*np.pi]),
-                                                shape=(3,), dtype=np.float32),
-                Ak.fuel: gym.spaces.Box(low=0.0, high=550.0, shape=(1,), dtype=np.float32)
-            }
+        # position(latitude & longitude), speed (u, v, w), euler_angles (phi, theta, psi), fuel
+        self.observation_space = gym.spaces.Box(
+            low=np.array([-np.pi/2, -np.pi, -120.0, -120.0, -20.0, -np.pi, -np.pi/2, 0.0, 0.0]),
+            high=np.array([np.pi/2, np.pi, 120.0, 120.0, 20.0, np.pi, np.pi/2, 2*np.pi, 550.0]),
+            dtype=np.float32
         )
 
-        self.action_space = gym.spaces.Dict(
-            {
-                Ak.de: gym.spaces.Box(low=-np.pi/6, high=np.pi/6, shape=(1,), dtype=np.float32),
-                Ak.da: gym.spaces.Box(low=-np.pi/6, high=np.pi/6, shape=(1,), dtype=np.float32),
-                Ak.dr: gym.spaces.Box(low=-np.pi/6, high=np.pi/6, shape=(1,), dtype=np.float32),
-                Ak.t_lever: gym.spaces.Box(low=0.0, high=2400.0, shape=(1,), dtype=np.float32)
-
-            }
+        # Action space definition
+        # Elevator, aileron, rudder and throttle lever
+        self.action_space = gym.spaces.Box(
+            low=np.array([-np.pi/6, -np.pi/6, -np.pi/6, 0.0]),
+            high=np.array([np.pi/6, np.pi/6, np.pi/6, 2400.0]),
+            dtype=np.float32
         )
 
         # Create instance of the simulator
@@ -111,7 +104,7 @@ class PilotRL(gym.Env):
         """
 
         # Calculate current step
-        self.state = self.simulator.step(action)
+        self.state = self._get_state(self.simulator.step(action))
 
         # Update current step
         self.current_step += 1
@@ -128,18 +121,12 @@ class PilotRL(gym.Env):
         # reward = distance_reward - fuel_penalty - time_penalty
         reward = distance_reward
 
-        # TODO -> Define Done
-        # Check if done
-        if distance < self.tol:
-            done = True
-        elif self.current_step >= self.max_step:
-            done = True
-        else:
-            done = False
+        done = self._check_done(distance)
 
         # TODO -> Define relevant information in the log
         # Log relevant information
-        self.logger.info(f"Step: {self.current_step}, Reward: {reward}, Done: {done}")
+        info = f"Step: {self.current_step}, Reward: {reward}, Done: {done}"
+        self.logger.info(info)
 
         # Set last distance
         self.last_distance = distance
@@ -172,6 +159,39 @@ class PilotRL(gym.Env):
         @return:
         """
         pass
+
+    def _check_done(self, distance):
+        """
+
+        Method to check if the objective goal has been reached.
+
+        :param distance: Distance to the destination. Based on haversine formula.
+        :type distance: float
+        :return: Boolean operator to check if done.
+        :rtype: bool
+        """
+
+        if distance < self.tol:
+            return True
+        elif self.current_step >= self.max_step:
+            return True
+        else:
+            return False
+
+    @staticmethod
+    def _get_state(state: np.ndarray) -> np.ndarray:
+        """
+
+        Method to get the current important information of the state of the aircraft. At the moment,
+
+        :param state: Current information of the state of the aircraft.
+        :type state: np.ndarray
+        :return: Relevant information for the observation space of the model.
+        :rtype: np.ndarray
+        """
+        # TODO
+        # The position of each variable may change. So, this method should be reworked.
+        return state[[15, 16, 6, 7, 8, 0, 1, 2, 14]]
 
 
 class PilotAgentTF(BaseAgentRL):
